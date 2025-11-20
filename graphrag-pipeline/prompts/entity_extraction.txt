@@ -1,0 +1,2 @@
+Extract entities specific to CRM: customers, companies, deals, products, interactions, sales reps.
+Focus on relationships: customer-company, deal-customer, interaction-customer, rep-deal.

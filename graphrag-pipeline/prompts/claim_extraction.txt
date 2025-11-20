@@ -1,0 +1,1 @@
+Extract claims and key statements about CRM entities and relationships.

@@ -1,0 +1,38 @@
+llm:
+  api_key: ${GRAPHRAG_API_KEY}
+  type: openai_chat
+  model: gpt-4-turbo-preview
+  max_tokens: 4000
+
+embeddings:
+  llm:
+    api_key: ${GRAPHRAG_API_KEY}
+    type: openai_embedding
+    model: text-embedding-3-small
+
+input:
+  type: file
+  file_type: text
+  base_dir: "input"
+  file_pattern: ".*\\.txt$"
+
+storage:
+  type: file
+  base_dir: "output/${timestamp}/artifacts"
+
+entity_extraction:
+  prompt: "prompts/entity_extraction.txt"
+  max_gleanings: 1
+
+claim_extraction:
+  enabled: true
+  prompt: "prompts/claim_extraction.txt"
+
+community_reports:
+  enabled: true
+  prompt: "prompts/community_report.txt"
+
+snapshots:
+  graphml: true
+  raw_entities: true
+  top_level_nodes: true

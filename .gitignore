@@ -1,0 +1,50 @@
+.DS_Store
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/.cache/
+frontend/.env*
+
+# Python / FastAPI
+backend/venv/
+graphrag-pipeline/venv/
+backend/.env*
+backend/__pycache__/
+**/__pycache__/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/*.pyc
+backend/*.pyo
+
+# Data & artifacts
+graphrag-pipeline/output/
+graphrag-pipeline/.cache/
+graphrag-pipeline/input/
+graphrag-pipeline/output/**
+data/output/
+
+# IDE / tooling
+.trae/
+.vscode/
+.idea/
+
+# Logs & misc
+*.log
+logs/
+coverage/
+dist/
+build/
+tmp/
+.cache/
+
+# Env files
+.env
+.env.*
+
+# Ignore all markdown files except root README
+*.md
+!README.md

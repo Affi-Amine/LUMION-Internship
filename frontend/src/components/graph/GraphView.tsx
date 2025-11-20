@@ -1,0 +1,201 @@
+"use client"
+import { useEffect, useState, useMemo } from 'react'
+import ReactFlow, { Background, Controls, MiniMap, ReactFlowProvider } from 'reactflow'
+import 'reactflow/dist/style.css'
+import { graphAPI } from '@/lib/api'
+
+type RawNode = { id: string; labels?: string[]; props?: Record<string, any> }
+type RawEdge = { source: string; target: string; type?: string }
+
+export default function GraphView() {
+  const [raw, setRaw] = useState<{ nodes: RawNode[]; edges: RawEdge[] } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [q, setQ] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [rfInstance, setRfInstance] = useState<any>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    graphAPI.export()
+      .then(({ data }) => {
+        try {
+          const allNodes: RawNode[] = data?.nodes || []
+          const limit = 80
+          const pick = allNodes.slice(0, limit)
+          const allowed = new Set(pick.map(n => String(n.id)))
+          const prunedEdges: RawEdge[] = (data?.edges || []).filter((e: any) => allowed.has(String(e.source)) && allowed.has(String(e.target)))
+          setRaw({ nodes: pick, edges: prunedEdges })
+        } catch {
+          setRaw(data)
+        }
+      })
+      .catch(() => setRaw({ nodes: [], edges: [] }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const nodes = useMemo(() => {
+    const src = raw?.nodes || []
+    const f = q ? src.filter(n => {
+      const name = n?.props?.name || `${n?.props?.first_name || ''} ${n?.props?.last_name || ''}`
+      return (name || '').toLowerCase().includes(q.toLowerCase()) || (n.id || '').toLowerCase().includes(q.toLowerCase())
+    }) : src
+    const base = f.map((n, i) => {
+      const name = n?.props?.name || `${n?.props?.first_name || ''} ${n?.props?.last_name || ''}` || n.id
+      const label = (n.labels && n.labels[0]) || 'Node'
+      const color = label === 'Customer' ? '#e3f2fd' : label === 'Company' ? '#e8f5e9' : label === 'Deal' ? '#fffde7' : '#f3e5f5'
+      return {
+        id: String(n.id),
+        position: { x: (i % 8) * 180, y: Math.floor(i / 8) * 140 },
+        data: { label: name || String(n.id) },
+        style: { background: color, borderRadius: 8, border: '1px solid #bbb', padding: 8 },
+      }
+    })
+    if (selectedId) {
+      const center = base.find(b => String(b.id) === String(selectedId))
+      if (center) {
+        const cx = center.position.x
+        const cy = center.position.y
+        const ringIds = new Set<string>()
+        const es = raw?.edges || []
+        es.forEach(e => {
+          const a = String(e.source)
+          const b = String(e.target)
+          if (a === String(selectedId)) ringIds.add(b)
+          if (b === String(selectedId)) ringIds.add(a)
+        })
+        const ring = (raw?.nodes || []).filter(n => ringIds.has(String(n.id)))
+        const r = 160
+        ring.forEach((n, idx) => {
+          const angle = (2 * Math.PI * idx) / Math.max(1, ring.length)
+          const nid = String(n.id)
+          const target = base.find(b => String(b.id) === nid)
+          if (target) {
+            target.position = { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r }
+          }
+        })
+      }
+    }
+    return base
+  }, [raw, q, selectedId])
+
+  const edges = useMemo(() => {
+    const src = raw?.edges || []
+    return src.map(e => ({ id: `${e.source}-${e.target}-${e.type || ''}`, source: String(e.source), target: String(e.target), label: e.type }))
+  }, [raw])
+
+  const selectedNode = useMemo(() => {
+    if (!selectedId || !raw) return null
+    return raw.nodes.find(n => String(n.id) === String(selectedId)) || null
+  }, [selectedId, raw])
+
+  const neighborEdges = useMemo(() => {
+    if (!selectedId || !raw) return []
+    return raw.edges.filter(e => String(e.source) === String(selectedId) || String(e.target) === String(selectedId))
+  }, [selectedId, raw])
+
+  const neighborNodes = useMemo(() => {
+    const ids = new Set<string>()
+    neighborEdges.forEach(e => {
+      const a = String(e.source)
+      const b = String(e.target)
+      if (a !== String(selectedId)) ids.add(a)
+      if (b !== String(selectedId)) ids.add(b)
+    })
+    const out: RawNode[] = []
+    if (raw) {
+      raw.nodes.forEach(n => {
+        if (ids.has(String(n.id))) out.push(n)
+      })
+    }
+    return out
+  }, [neighborEdges, selectedId, raw])
+
+  return (
+    <div className="h-[70vh] border rounded-lg">
+      <div className="p-3 flex items-center gap-2 border-b">
+        <div className="flex items-center gap-3">
+          <span className="text-xs">Legend:</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#e3f2fd'}}>Customer</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#e8f5e9'}}>Company</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#fffde7'}}>Deal</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#f3e5f5'}}>Other</span>
+        </div>
+        <input className="border p-2 flex-1 ml-3" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search nodes" />
+        <button className="px-3 py-1 border" onClick={() => {
+          setLoading(true)
+          graphAPI.export().then(({data})=>setRaw(data)).finally(()=>setLoading(false))
+        }} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
+      </div>
+      <ReactFlowProvider>
+      <div className="grid grid-cols-4 gap-0 h-full">
+        <div className="col-span-3">
+          <ReactFlow
+            nodes={nodes as any}
+            edges={edges as any}
+            fitView
+            onInit={setRfInstance}
+            onNodeClick={(_, node) => setSelectedId(String(node.id))}
+          >
+            <Background />
+            <MiniMap />
+            <Controls />
+          </ReactFlow>
+        </div>
+        <div className="col-span-1 border-l p-3 overflow-auto">
+          {selectedNode ? (
+            <div>
+              <div className="text-sm font-semibold">Node</div>
+              <div className="text-xs break-words">{selectedNode.props?.name || `${selectedNode.props?.first_name || ''} ${selectedNode.props?.last_name || ''}` || selectedNode.id}</div>
+              <div className="text-xs mt-2">ID: {String(selectedNode.id)}</div>
+              <div className="text-xs mt-2">Labels: {(selectedNode.labels || []).join(', ')}</div>
+              <div className="text-sm font-semibold mt-3">Properties</div>
+              <pre className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(selectedNode.props || {}, null, 2)}</pre>
+              <div className="mt-2">
+                <button
+                  className="px-3 py-1 border text-xs"
+                  onClick={async () => {
+                    try {
+                      setLoading(true)
+                      const { data } = await graphAPI.neighbors(String(selectedNode.id), 1)
+                      setRaw(prev => {
+                        const pn = prev?.nodes || []
+                        const pe = prev?.edges || []
+                        const ids = new Set(pn.map(n => String(n.id)))
+                        const newNodes = (data.nodes || []).filter((n: any) => !ids.has(String(n.id)))
+                        const edgeKeys = new Set(pe.map(e => `${e.source}-${e.target}-${e.type || ''}`))
+                        const newEdges = (data.edges || []).filter((e: any) => !edgeKeys.has(`${e.source}-${e.target}-${e.type || ''}`))
+                        return { nodes: [...pn, ...newNodes], edges: [...pe, ...newEdges] }
+                      })
+                      if (q) setQ('')
+                      requestAnimationFrame(() => {
+                        try { rfInstance?.fitView({ padding: 0.2 }) } catch {}
+                      })
+                    } finally {
+                      setLoading(false)
+                    }
+                  }}
+                  disabled={loading}
+                >{loading ? 'Expanding...' : 'Expand neighbors'}</button>
+              </div>
+              <div className="text-sm font-semibold mt-3">Connected Edges</div>
+              <ul className="text-xs list-disc pl-4">
+                {neighborEdges.map((e) => (
+                  <li key={`${e.source}-${e.target}-${e.type || ''}`}>{String(e.source)} → {String(e.target)}{e.type ? ` (${e.type})` : ''}</li>
+                ))}
+              </ul>
+              <div className="text-sm font-semibold mt-3">Neighbor Nodes</div>
+              <ul className="text-xs list-disc pl-4">
+                {neighborNodes.map((n) => (
+                  <li key={String(n.id)}>{n.props?.name || `${n.props?.first_name || ''} ${n.props?.last_name || ''}` || String(n.id)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-600">Select a node to view details</div>
+          )}
+        </div>
+      </div>
+      </ReactFlowProvider>
+    </div>
+  )
+}
