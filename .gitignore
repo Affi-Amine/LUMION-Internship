@@ -23,8 +23,8 @@ backend/*.pyo
 # Data & artifacts
 graphrag-pipeline/output/
 graphrag-pipeline/.cache/
-graphrag-pipeline/input/
 graphrag-pipeline/output/**
+!graphrag-pipeline/output/sample/**
 data/output/
 
 # IDE / tooling
@@ -44,6 +44,8 @@ tmp/
 # Env files
 .env
 .env.*
+!*.env.example
+!**/.env.example
 
 # Ignore all markdown files except root README
 *.md

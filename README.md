@@ -35,6 +35,28 @@ The app runs at `http://localhost:3000`.
 - Click a node to view details; use “Expand neighbors” to load and display connected nodes and edges
 - Use minimap, zoom, and controls to explore
 
+## GraphRAG Pipeline and Indexing
+- Inputs
+  - Example docs are included in `graphrag-pipeline/input/`.
+  - The indexing script reads from `data/output/input/`. Copy your `.txt` docs there:
+    - `mkdir -p data/output/input && cp graphrag-pipeline/input/*.txt data/output/input/`
+- Outputs
+  - Default `GRAPHRAG_INDEX_PATH` is `graphrag-pipeline/output`.
+  - Files produced:
+    - `create_final_text_units.parquet` (chunked text, optional embeddings)
+    - `create_final_entities.parquet` (naive entities)
+    - `create_final_relationships.parquet` (edges exported from Neo4j if available)
+    - `create_final_community_reports.parquet` (brief per-document report)
+- Run the pipeline
+  - `pip install -r backend/requirements.txt` (for optional Neo4j export)
+  - Set `GEMINI_API_KEY` to enable embeddings
+  - `python scripts/graphrag/run_indexing.py`
+  - Console prints: `Artifacts written to: <path>`
+- Backend indexing config
+  - The backend reads the latest artifacts under `GRAPHRAG_INDEX_PATH`.
+  - Verify: `GET /api/graphrag/debug/index`
+  - Query: `POST /api/graphrag/query/local`
+
 ## Neo4j Usage Overview
 - Connection is configured via env in `backend/app/core/config.py`
 - Operations live in `backend/app/services/neo4j.py`:
