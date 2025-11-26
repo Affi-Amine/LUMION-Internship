@@ -16,6 +16,7 @@ export const graphragAPI = {
 }
 
 export const graphAPI = {
-  export: () => api.get('/api/graph/export'),
+  export: (dataset?: string) => api.get('/api/graph/export', { params: { dataset: dataset || 'crm' } }),
+  exportCode: () => api.get('/api/graph/export', { params: { dataset: 'code' } }),
   neighbors: (id: string, depth: number = 1) => api.get(`/api/graph/neighbors/${id}`, { params: { depth } }),
 }

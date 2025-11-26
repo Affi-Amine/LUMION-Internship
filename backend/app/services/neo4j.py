@@ -82,6 +82,22 @@ class Neo4jService:
             "edges": [{"source": rec["source"], "target": rec["target"], "type": rec["type"]} for rec in edges],
         }
 
+    def export_graph_for_labels(self, labels: List[str]) -> Dict:
+        nodes_q = (
+            "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $labels) "
+            "RETURN labels(n) AS labels, n.id AS id, properties(n) AS props"
+        )
+        edges_q = (
+            "MATCH (a)-[r]->(b) WHERE any(l IN labels(a) WHERE l IN $labels) AND any(m IN labels(b) WHERE m IN $labels) "
+            "RETURN a.id AS source, b.id AS target, type(r) AS type"
+        )
+        nodes = self._run_read(nodes_q, {"labels": labels})
+        edges = self._run_read(edges_q, {"labels": labels})
+        return {
+            "nodes": [{"id": rec["id"], "labels": rec["labels"], "props": rec["props"]} for rec in nodes],
+            "edges": [{"source": rec["source"], "target": rec["target"], "type": rec["type"]} for rec in edges],
+        }
+
     def get_all_entities_as_text(self) -> List[str]:
         customers = self._run_read(
             "MATCH (c:Customer) OPTIONAL MATCH (c)-[:WORKS_AT]->(co:Company) "
@@ -142,3 +158,41 @@ class Neo4jService:
             nodes.append({"id": rec["id"], "labels": rec["labels"], "props": rec["props"]})
         edges = [{"source": r["source"], "target": r["target"], "type": r["type"]} for r in edges_out + edges_in]
         return {"nodes": nodes, "edges": edges}
+
+    def import_ast(self, entities: List[Dict[str, Any]], relationships: List[Dict[str, Any]]) -> Dict:
+        created = 0
+        def label_for(t: str) -> str:
+            m = {
+                'File': 'CodeFile',
+                'Component': 'Component',
+                'Function': 'Function',
+                'Hook': 'Hook',
+                'Import': 'Import',
+                'Export': 'Export',
+            }
+            return m.get(t, 'Code')
+        for e in entities:
+            idv = e.get('id')
+            typ = label_for(str(e.get('type', 'Code')))
+            props = {}
+            for k, v in e.items():
+                if k in ['id', 'type']:
+                    continue
+                if isinstance(v, (str, int, float)) or v is None:
+                    props[k] = v
+                else:
+                    try:
+                        import json
+                        props[k] = json.dumps(v)
+                    except Exception:
+                        props[k] = str(v)
+            q = f"MERGE (n:{typ} {{id:$id}}) SET n += $props"
+            self._run_write(q, {"id": idv, "props": props})
+            created += 1
+        for r in relationships:
+            src = r.get('source')
+            tgt = r.get('target')
+            typ = str(r.get('type', 'RELATED_TO'))
+            q = f"MATCH (a {{id:$src}}),(b {{id:$tgt}}) MERGE (a)-[:{typ}]->(b)"
+            self._run_write(q, {"src": src, "tgt": tgt})
+        return {"nodes": created, "edges": len(relationships)}

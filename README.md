@@ -1,6 +1,6 @@
-# Smart CRM Platform
+# Code Graph Explorer
 
-A full-stack CRM demo featuring a FastAPI backend, a Next.js frontend, and a Neo4j graph database for relationships between customers, companies, deals, and interactions. It also includes a lightweight GraphRAG exploration layer.
+A full-stack demo focused on AST-based code graph indexing and visualization. It features a FastAPI backend, a Next.js frontend, and Neo4j to store and explore code entities and relationships. The GraphRAG layer answers structural queries about the codebase (e.g., calls, renders, imports).
 
 ## Prerequisites
 - Python 3.11+
@@ -18,9 +18,12 @@ A full-stack CRM demo featuring a FastAPI backend, a Next.js frontend, and a Neo
 The API is served at `http://localhost:8000` with CORS allowed for `http://localhost:3000`.
 
 ### Useful endpoints
-- `GET /api/graph/export` — full graph snapshot (nodes/edges)
+- `POST /api/graph/import/ast` — import latest AST artifacts into Neo4j
+- `GET /api/graph/export?dataset=code` — export code graph snapshot (nodes/edges)
 - `GET /api/graph/neighbors/{node_id}` — direct neighbors of a node
-- `POST /api/graphrag/query/local` — local GraphRAG search over indexed artifacts
+- `POST /api/graphrag/query/local` — local GraphRAG search over code artifacts
+- `POST /api/graphrag/query/global` — rank directory communities and summaries
+- `POST /api/graphrag/query/drift` — compare segments by directory/period
 - `GET /api/graphrag/debug/index` — verify GraphRAG artifacts are loaded
 
 ## Frontend (Next.js)
@@ -35,48 +38,65 @@ The app runs at `http://localhost:3000`.
 - Click a node to view details; use “Expand neighbors” to load and display connected nodes and edges
 - Use minimap, zoom, and controls to explore
 
-## GraphRAG Pipeline and Indexing
+## GraphRAG Indexing (Code-Based)
 - Inputs
-  - Example docs are included in `graphrag-pipeline/input/`.
-  - The indexing script reads from `data/output/input/`. Copy your `.txt` docs there:
-    - `mkdir -p data/output/input && cp graphrag-pipeline/input/*.txt data/output/input/`
+  - Source is the frontend codebase: `frontend/src/**/*.{ts,tsx}`
+  - The AST indexer parses components/functions/imports/hooks and builds a semantic graph
 - Outputs
   - Default `GRAPHRAG_INDEX_PATH` is `graphrag-pipeline/output`.
-  - Files produced:
-    - `create_final_text_units.parquet` (chunked text, optional embeddings)
-    - `create_final_entities.parquet` (naive entities)
-    - `create_final_relationships.parquet` (edges exported from Neo4j if available)
-    - `create_final_community_reports.parquet` (brief per-document report)
+  - Files produced under `<timestamp>/artifacts/`:
+    - `create_final_text_units.json` (code snippets for local search)
+    - `create_final_entities.json` (entities: File, Component, Function, Hook, Import, Export)
+    - `create_final_relationships.json` (edges: CONTAINS, IMPORTS, CALLS, RENDERS, USES_HOOK, EXPORTS)
+    - `create_final_community_reports.json` (directory-level summaries and top imports)
 - Run the pipeline
-  - `pip install -r backend/requirements.txt` (for optional Neo4j export)
-  - Set `GEMINI_API_KEY` to enable embeddings
-  - `python scripts/graphrag/run_indexing.py`
+  - `cd frontend`
+  - `npm run index:frontend`
   - Console prints: `Artifacts written to: <path>`
 - Backend indexing config
   - The backend reads the latest artifacts under `GRAPHRAG_INDEX_PATH`.
   - Verify: `GET /api/graphrag/debug/index`
   - Query: `POST /api/graphrag/query/local`
 
+### Structural Query Examples
+- Local:
+  - `List functions that call graphAPI.` → returns caller functions (e.g., `GraphView`)
+  - `Which components render GraphView?` → returns rendering components (e.g., `Page`)
+  - `Which files import @/lib/api?` → returns importing file names
+- Global:
+  - `architecture overview` → top directory communities by components/functions with summaries
+- Drift:
+  - `graphAPI` with periods `Q1`=`src/components`, `Q2`=`src/app`, `Q3`=`src/lib`
+
+### Graph Visualization (Code Graph)
+- Import AST graph into Neo4j: `POST /api/graph/import/ast`
+- Export code graph (backend): `GET /api/graph/export?dataset=code`
+- Frontend page loads code graph by default at `http://localhost:3000/graph`
+ - Legend on the Graph page:
+   - `CodeFile` `#f0f4c3`, `Component` `#e8f5e9`, `Function` `#e3f2fd`, `Hook` `#fff9c4`, `Import` `#fce4ec`, `Export` `#ede7f6`, `Other` `#f3e5f5`
+
 ## Neo4j Usage Overview
 - Connection is configured via env in `backend/app/core/config.py`
 - Operations live in `backend/app/services/neo4j.py`:
-  - Create/merge `Customer`, `Company`, `Deal`, `Interaction` and link edges like `WORKS_AT`, `HAS_DEAL`, `PARTICIPATED_IN`
-  - `export_graph_for_graphrag` returns normalized nodes/edges for the frontend and GraphRAG
+  - Code graph: `CodeFile`, `Component`, `Function`, `Hook` with edges `CONTAINS`, `IMPORTS`, `CALLS`, `RENDERS`, `USES_HOOK`, `EXPORTS`
+  - `export_graph_for_graphrag` and `export_graph_for_labels` return normalized nodes/edges for the frontend and GraphRAG
   - `get_neighbors(node_id)` fetches incoming/outgoing neighbor nodes and edges for expansion
 
 ## Experimentation
-- Try different node selections on `/graph` and expand neighbors to reveal relationships visually
-- Use `POST /api/graphrag/query/local` with a JSON body:
+- Try different node selections on `/graph` and expand neighbors to reveal code relationships visually
+- Local query example:
   ```json
   {
-    "query": "top customers by deal value",
+    "query": "Which components render GraphView?",
     "top_k": 5,
     "min_score": 0.0,
     "filters": null,
     "history": []
   }
   ```
-- Inspect `GET /api/graphrag/debug/index` to confirm artifacts (if any) are loaded
+- Global query example: `{"query":"architecture overview"}`
+- Drift query example: `{"query":"graphAPI","periods":["Q1","Q2","Q3"]}`
+- Inspect `GET /api/graphrag/debug/index` to confirm artifacts are loaded
 
 ## Project Structure
 - `backend/` — FastAPI app (`app/main.py`, API routers, Neo4j service, config)

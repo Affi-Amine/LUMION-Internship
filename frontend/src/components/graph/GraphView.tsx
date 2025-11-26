@@ -16,7 +16,7 @@ export default function GraphView() {
 
   useEffect(() => {
     setLoading(true)
-    graphAPI.export()
+    graphAPI.exportCode()
       .then(({ data }) => {
         try {
           const allNodes: RawNode[] = data?.nodes || []
@@ -42,7 +42,7 @@ export default function GraphView() {
     const base = f.map((n, i) => {
       const name = n?.props?.name || `${n?.props?.first_name || ''} ${n?.props?.last_name || ''}` || n.id
       const label = (n.labels && n.labels[0]) || 'Node'
-      const color = label === 'Customer' ? '#e3f2fd' : label === 'Company' ? '#e8f5e9' : label === 'Deal' ? '#fffde7' : '#f3e5f5'
+      const color = label === 'CodeFile' ? '#f0f4c3' : label === 'Component' ? '#e8f5e9' : label === 'Function' ? '#e3f2fd' : label === 'Hook' ? '#fff9c4' : label === 'Import' ? '#fce4ec' : label === 'Export' ? '#ede7f6' : '#f3e5f5'
       return {
         id: String(n.id),
         position: { x: (i % 8) * 180, y: Math.floor(i / 8) * 140 },
@@ -115,15 +115,18 @@ export default function GraphView() {
       <div className="p-3 flex items-center gap-2 border-b">
         <div className="flex items-center gap-3">
           <span className="text-xs">Legend:</span>
-          <span className="text-xs px-2 py-1 rounded" style={{background:'#e3f2fd'}}>Customer</span>
-          <span className="text-xs px-2 py-1 rounded" style={{background:'#e8f5e9'}}>Company</span>
-          <span className="text-xs px-2 py-1 rounded" style={{background:'#fffde7'}}>Deal</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#f0f4c3'}}>CodeFile</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#e8f5e9'}}>Component</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#e3f2fd'}}>Function</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#fff9c4'}}>Hook</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#fce4ec'}}>Import</span>
+          <span className="text-xs px-2 py-1 rounded" style={{background:'#ede7f6'}}>Export</span>
           <span className="text-xs px-2 py-1 rounded" style={{background:'#f3e5f5'}}>Other</span>
         </div>
         <input className="border p-2 flex-1 ml-3" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search nodes" />
         <button className="px-3 py-1 border" onClick={() => {
           setLoading(true)
-          graphAPI.export().then(({data})=>setRaw(data)).finally(()=>setLoading(false))
+          graphAPI.exportCode().then(({data})=>setRaw(data)).finally(()=>setLoading(false))
         }} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
       </div>
       <ReactFlowProvider>

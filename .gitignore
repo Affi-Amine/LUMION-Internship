@@ -50,3 +50,5 @@ tmp/
 # Ignore all markdown files except root README
 *.md
 !README.md
+AGENT_BRIEF.md
+DELIVERY_PLAN.md
