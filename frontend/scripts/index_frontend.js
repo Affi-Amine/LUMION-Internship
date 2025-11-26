@@ -141,7 +141,12 @@ function analyzeFile(fp) {
     ts.forEachChild(n, visit)
   }
   visit(sf)
-  texts.push({ document_id: fp, chunk_id: 0, text: src.slice(0, 800) })
+  const chunkSize = 800
+  for (let i = 0; i < src.length; i += chunkSize) {
+    const chunk = src.slice(i, i + chunkSize)
+    if (chunk.trim().length === 0) continue
+    texts.push({ document_id: fp, chunk_id: Math.floor(i / chunkSize), unit_id: `${fileId(fp)}_chunk_${Math.floor(i / chunkSize)}`, text: chunk })
+  }
   return { entities, edges, texts }
 }
 

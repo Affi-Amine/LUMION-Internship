@@ -57,6 +57,27 @@ The app runs at `http://localhost:3000`.
   - The backend reads the latest artifacts under `GRAPHRAG_INDEX_PATH`.
   - Verify: `GET /api/graphrag/debug/index`
   - Query: `POST /api/graphrag/query/local`
+- Optional embeddings
+  - Set `GEMINI_API_KEY` or `OPENAI_API_KEY` in `backend/.env` (backend auto-loads `.env`)
+  - Run: `curl -X POST http://localhost:8000/api/graphrag/index/embeddings`
+  - Uses Gemini (`models/text-embedding-004`) if `GEMINI_API_KEY` is set, otherwise OpenAI (`text-embedding-3-small`) if `OPENAI_API_KEY` is set
+
+## Microsoft GraphRAG (LLM-Based)
+- Requirements
+  - `OPENAI_API_KEY` or Azure OpenAI configured in `graphrag_index/settings.yaml`
+- Endpoint
+  - `POST /api/graphrag/index/microsoft`
+  - Initializes a GraphRAG workspace, prepares input from `frontend/src`, and runs the official GraphRAG indexing pipeline
+- Outputs
+  - Artifacts under `graphrag_index/output/<timestamp>/artifacts` compatible with backend queries
+- Note
+  - The official pipeline requires OpenAI/Azure credentials; Gemini is supported for embeddings and experimental extraction only
+
+## Provider Keys
+- `backend/.env`
+  - `GEMINI_API_KEY=`
+  - `OPENAI_API_KEY=`
+- `backend/.env.example` includes both keys for easy configuration
 
 ### Structural Query Examples
 - Local:
@@ -106,3 +127,6 @@ The app runs at `http://localhost:3000`.
 ## Tips
 - If expansion appears to do nothing, clear the search box on the graph page so new nodes aren’t filtered out
 - For production, set strong credentials and restrict CORS; rotate any API keys regularly
+### Frontend Behavior
+- Query page (`/query`) uses backend GraphRAG endpoints and works with either indexing mode (AST artifacts or Microsoft GraphRAG artifacts)
+- Graph page (`/graph`) visualizes the AST code graph; to visualize the Microsoft GraphRAG knowledge graph, add a new view that reads `create_final_entities` and `create_final_relationships` artifacts

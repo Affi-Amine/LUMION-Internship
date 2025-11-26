@@ -9,6 +9,10 @@ try:
     import google.generativeai as genai
 except Exception:
     genai = None
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 class GraphRAGService:
     def __init__(self, index_path: str):
@@ -92,18 +96,167 @@ class GraphRAGService:
         return s / (math.sqrt(na) * math.sqrt(nb))
 
     def _embed(self, text: str) -> Optional[List[float]]:
+        api_key_g = os.getenv("GEMINI_API_KEY")
+        if genai is not None and api_key_g:
+            try:
+                genai.configure(api_key=api_key_g)
+                r = genai.embed_content(model="models/text-embedding-004", content=text)
+                e = r.get("embedding") if isinstance(r, dict) else getattr(r, "embedding", None)
+                if e is None and isinstance(r, dict) and "values" in r:
+                    e = r.get("values")
+                if hasattr(e, "values"):
+                    e = e.values
+                return list(e) if e is not None else None
+            except Exception:
+                pass
+        api_key_o = os.getenv("OPENAI_API_KEY")
+        if OpenAI is not None and api_key_o:
+            try:
+                client = OpenAI(api_key=api_key_o)
+                r = client.embeddings.create(model="text-embedding-3-small", input=text)
+                e = r.data[0].embedding if getattr(r, "data", None) else None
+                return list(e) if e is not None else None
+            except Exception:
+                pass
+        return None
+
+    def enrich_text_unit_embeddings(self) -> Dict[str, Any]:
+        df = self.text_units
+        if df is None or df.empty:
+            return {"updated": 0, "reason": "No text_units loaded"}
+        api_key_g = os.getenv("GEMINI_API_KEY")
+        api_key_o = os.getenv("OPENAI_API_KEY")
+        use_gemini = genai is not None and api_key_g
+        use_openai = (not use_gemini) and OpenAI is not None and api_key_o
+        if not use_gemini and not use_openai:
+            return {"updated": 0, "reason": "Embeddings unavailable (set GEMINI_API_KEY or OPENAI_API_KEY)"}
+        if use_gemini:
+            try:
+                genai.configure(api_key=api_key_g)
+            except Exception:
+                use_gemini = False
+        text_col = self._pick_text_col(df)
+        if not text_col:
+            return {"updated": 0, "reason": "No text column present"}
+        embs = []
+        updated = 0
+        for _, row in df.iterrows():
+            txt = str(row.get(text_col, ""))
+            try:
+                vec = None
+                if use_gemini:
+                    r = genai.embed_content(model="models/text-embedding-004", content=txt)
+                    e = r.get("embedding") if isinstance(r, dict) else getattr(r, "embedding", None)
+                    if e is None and isinstance(r, dict) and "values" in r:
+                        e = r.get("values")
+                    if hasattr(e, "values"):
+                        e = e.values
+                    vec = list(e) if e is not None else None
+                elif use_openai:
+                    client = OpenAI(api_key=api_key_o)
+                    r = client.embeddings.create(model="text-embedding-3-small", input=txt)
+                    e = r.data[0].embedding if getattr(r, "data", None) else None
+                    vec = list(e) if e is not None else None
+                embs.append(vec)
+                if vec is not None:
+                    updated += 1
+            except Exception:
+                embs.append(None)
+        try:
+            df = df.copy()
+            df["embedding"] = embs
+            out_pq = os.path.join(self.artifacts_dir, "create_final_text_units.parquet")
+            df.to_parquet(out_pq, index=False)
+            out_json = os.path.join(self.artifacts_dir, "create_final_text_units.json")
+            try:
+                with open(out_json, "w") as f:
+                    json.dump(df.to_dict(orient="records"), f)
+            except Exception:
+                pass
+            self.text_units = df
+            return {"updated": updated, "saved": True}
+        except Exception as e:
+            return {"updated": updated, "saved": False, "reason": str(e)}
+
+    def _extract_graph_via_gemini(self, text: str) -> Dict[str, Any]:
         if genai is None:
-            return None
+            return {"entities": [], "relationships": []}
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            return None
+            return {"entities": [], "relationships": []}
         try:
             genai.configure(api_key=api_key)
-            r = genai.embed_content(model="text-embedding-004", content=text)
-            e = r.get("embedding") if isinstance(r, dict) else getattr(r, "embedding", None)
-            return list(e) if e is not None else None
+            model = genai.GenerativeModel("gemini-1.5-pro")
+            prompt = (
+                "You are extracting a code graph from TypeScript/TSX code. "
+                "Return JSON with keys 'entities' and 'relationships'. "
+                "entities: list of {id,name,type} where type is one of File, Component, Function, Hook, Import, Export. "
+                "relationships: list of {source,target,type} where type is one of CONTAINS, IMPORTS, CALLS, RENDERS, USES_HOOK, EXPORTS. "
+                "Infer ids as stable strings (e.g., 'fn_Name', 'cmp_Name', 'file_path'). "
+                "Output strictly JSON only."
+            )
+            r = model.generate_content([prompt, text])
+            t = getattr(r, "text", None)
+            if not t and hasattr(r, "candidates") and r.candidates:
+                try:
+                    t = r.candidates[0].content.parts[0].text
+                except Exception:
+                    t = None
+            if not t:
+                return {"entities": [], "relationships": []}
+            try:
+                j = json.loads(t)
+            except Exception:
+                m = re.search(r"\{[\s\S]*\}", t)
+                j = json.loads(m.group(0)) if m else {"entities": [], "relationships": []}
+            ents = j.get("entities") or []
+            rels = j.get("relationships") or []
+            return {"entities": ents, "relationships": rels}
         except Exception:
-            return None
+            return {"entities": [], "relationships": []}
+
+    def enrich_graph_with_gemini(self, limit: int = 50) -> Dict[str, Any]:
+        df = self.text_units
+        if df is None or df.empty:
+            return {"entities": 0, "relationships": 0, "reason": "No text_units loaded"}
+        text_col = self._pick_text_col(df)
+        if not text_col:
+            return {"entities": 0, "relationships": 0, "reason": "No text column present"}
+        collected_entities: List[Dict[str, Any]] = []
+        collected_relationships: List[Dict[str, Any]] = []
+        count = 0
+        for _, row in df.iterrows():
+            if count >= max(1, limit):
+                break
+            txt = str(row.get(text_col, ""))
+            res = self._extract_graph_via_gemini(txt)
+            did = row.get("document_id")
+            for e in res.get("entities", []):
+                ee = {"id": e.get("id"), "name": e.get("name"), "type": e.get("type"), "document_id": did}
+                collected_entities.append(ee)
+            for r in res.get("relationships", []):
+                rr = {"source": r.get("source"), "target": r.get("target"), "type": r.get("type"), "document_id": did}
+                collected_relationships.append(rr)
+            count += 1
+        try:
+            ents_df = pd.DataFrame(collected_entities)
+            rels_df = pd.DataFrame(collected_relationships)
+            if self.artifacts_dir:
+                p1 = os.path.join(self.artifacts_dir, "create_final_entities.parquet")
+                p2 = os.path.join(self.artifacts_dir, "create_final_relationships.parquet")
+                ents_df.to_parquet(p1, index=False)
+                rels_df.to_parquet(p2, index=False)
+                j1 = p1.replace(".parquet", ".json")
+                j2 = p2.replace(".parquet", ".json")
+                with open(j1, "w") as f:
+                    json.dump(ents_df.to_dict(orient="records"), f)
+                with open(j2, "w") as f:
+                    json.dump(rels_df.to_dict(orient="records"), f)
+            self.entities = ents_df
+            self.relationships = rels_df
+            return {"entities": len(collected_entities), "relationships": len(collected_relationships), "saved": True}
+        except Exception as e:
+            return {"entities": len(collected_entities), "relationships": len(collected_relationships), "saved": False, "reason": str(e)}
 
     def _top_units(self, query: str, k: int = 5, offset: int = 0, min_score: float = 0.0, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         df = self.text_units

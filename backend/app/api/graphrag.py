@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+import os
 from app.models.queries import QueryRequest, DriftQueryRequest, ConversationalRequest
 from app.services.graphrag import GraphRAGService
 from app.core.config import settings
+from app.services.ms_graphrag import MicrosoftGraphRAGIntegrator
 
 router = APIRouter()
 
@@ -52,3 +54,23 @@ async def debug_index():
 @router.get("/entities/{entity_id}")
 async def get_entity_details(entity_id: str):
     return {"id": entity_id}
+
+@router.post("/index/embeddings")
+async def index_embeddings():
+    service = GraphRAGService(index_path=settings.graphrag_index_path)
+    return service.enrich_text_unit_embeddings()
+
+@router.post("/index/microsoft")
+async def index_with_microsoft():
+    integrator = MicrosoftGraphRAGIntegrator()
+    init_res = integrator.init_project()
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "src"))
+    prep_res = integrator.prepare_input_from_dir(src)
+    run_res = integrator.run_index()
+    latest = integrator.latest_artifacts()
+    return {"init": init_res, "prepare": prep_res, "run": run_res, "artifacts": latest}
+
+@router.post("/index/gemini_graph")
+async def index_with_gemini_graph(limit: int = 50):
+    service = GraphRAGService(index_path=settings.graphrag_index_path)
+    return service.enrich_graph_with_gemini(limit=limit)
