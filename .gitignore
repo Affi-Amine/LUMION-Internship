@@ -52,3 +52,11 @@ tmp/
 !README.md
 AGENT_BRIEF.md
 DELIVERY_PLAN.md
+
+# GraphRAG workspace
+graphrag_index/.env
+graphrag_index/input/
+graphrag_index/output/
+graphrag_index/logs/
+graphrag_index/cache/
+graphrag_index/lancedb/
